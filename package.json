@@ -1,0 +1,29 @@
+{
+  "name": "echarts",
+  "version": "1.0.0",
+  "main": "./src/index.ts",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build-prod": "webpack --mode production",
+    "build": "webpack --mode development"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "description": "",
+  "devDependencies": {
+    "@types/d3": "^7.4.3",
+    "@types/lodash": "^4.17.14",
+    "@types/node": "^22.10.5",
+    "d3": "^7.9.0",
+    "echarts": "^5.6.0",
+    "html-webpack-plugin": "^5.6.3",
+    "lodash": "^4.17.21",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.7.2",
+    "webpack": "^5.97.1",
+    "webpack-cli": "^6.0.1",
+    "webpack-dev-server": "^5.2.0"
+  }
+}
