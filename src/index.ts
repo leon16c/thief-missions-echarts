@@ -29,7 +29,7 @@ export type MissionJson = {
     rating_distribution: RatingDistribution;
 };
 
-type MissionData = [Date, number, number, string, string, string, string];
+type MissionData = [Date, number, number, string, string, string, string, number];
 type TooltipDatum = echarts.TooltipComponentFormatterCallbackParams & { data?: unknown };
 
 enum DATA_TYPE {
@@ -46,6 +46,7 @@ class MissionDataField {
     public static readonly authorsIdx = 4;
     public static readonly thumbnailIdx = 5;
     public static readonly genresIdx = 6;
+    public static readonly idIdx = 7;
 }
 
 export class GAME {
@@ -277,6 +278,7 @@ class ThiefMissionsViz {
             series: [],
         });
         this.setupEventListeners();
+        this.setupChartInteractions();
         this.updateChart();
         window.addEventListener('resize', this.resizeHandler);
 
@@ -462,6 +464,24 @@ class ThiefMissionsViz {
         this.dom.xRightOutput.value = this.dom.xRight.value;
     }
 
+    private setupChartInteractions() {
+        this.chart.on('click', (params: echarts.ECElementEvent) => {
+            if (params.componentSubType !== 'scatter') {
+                return;
+            }
+            const missionData = params.data as MissionData;
+            const idValue = missionData?.[MissionDataField.idIdx];
+            const missionId = typeof idValue === 'number' ? idValue : Number(idValue);
+            if (!missionId || Number.isNaN(missionId)) {
+                return;
+            }
+            const url = `https://www.thiefguild.com/fanmissions/${missionId}/`;
+            if (typeof window !== 'undefined') {
+                window.open(url, '_blank', 'noopener');
+            }
+        });
+    }
+
     private buildGameFilterOptions(): GameFilterOption[] {
         if (this.groupedGameOptions) {
             return [
@@ -511,6 +531,7 @@ function missionsToData(missions: Mission[]): MissionData[] {
         joinWithLineBreak(mission.authors, 4),
         mission.thumbnailUrl,
         joinWithLineBreak(mission.genres, 3),
+        mission.id,
     ]);
 }
 
