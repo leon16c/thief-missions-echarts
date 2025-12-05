@@ -41,7 +41,8 @@
             window.ThiefMissionsViz.init({
               root: targetSelector,
               data: missions,
-              initial: { showThumbnails: false }
+              initial: { showThumbnails: false },
+              features: { yearFilter: false } // hide year sliders for yearly recap
             });
           })
           .catch(function (error) {

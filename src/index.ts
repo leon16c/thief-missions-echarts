@@ -107,20 +107,22 @@ const LAYOUT_TEMPLATE = `
                 <output data-role="y-top-output">10</output>
             </label>
         </div>
-        <label class="tmv-checkbox">
-            <input type="checkbox" data-role="limit-x" /> Limit release year
-        </label>
-        <div class="tmv-range-group">
-            <label>
-                From
-                <input type="range" min="1999" max="2025" step="1" value="1999" data-role="x-left" />
-                <output data-role="x-left-output">1999</output>
+        <div data-role="year-filter-block">
+            <label class="tmv-checkbox">
+                <input type="checkbox" data-role="limit-x" /> Limit release year
             </label>
-            <label>
-                To
-                <input type="range" min="1999" max="2025" step="1" value="2025" data-role="x-right" />
-                <output data-role="x-right-output">2025</output>
-            </label>
+            <div class="tmv-range-group">
+                <label>
+                    From
+                    <input type="range" min="1999" max="2025" step="1" value="1999" data-role="x-left" />
+                    <output data-role="x-left-output">1999</output>
+                </label>
+                <label>
+                    To
+                    <input type="range" min="1999" max="2025" step="1" value="2025" data-role="x-right" />
+                    <output data-role="x-right-output">2025</output>
+                </label>
+            </div>
         </div>
     </div>
     <div class="tmv-chart" data-role="chart"></div>
@@ -191,6 +193,7 @@ interface ControlRefs {
     xRight: HTMLInputElement;
     xLeftOutput: HTMLOutputElement;
     xRightOutput: HTMLOutputElement;
+    yearFilterBlock: HTMLDivElement;
 }
 
 export type InitOptions = {
@@ -199,6 +202,9 @@ export type InitOptions = {
     initial?: {
         showThumbnails?: boolean;
         scaleByRatings?: boolean;
+    };
+    features?: {
+        yearFilter?: boolean;
     };
 };
 
@@ -213,10 +219,12 @@ class ThiefMissionsViz {
     private readonly resizeHandler: () => void;
     private chart!: echarts.ECharts;
     private missions: Mission[];
+    private readonly enableYearFilter: boolean;
 
     constructor(private options: InitOptions) {
         const root = resolveRoot(options.root);
         injectStyles();
+        this.enableYearFilter = options.features?.yearFilter !== false;
         this.dom = buildLayout(root);
         if (!options.data || !options.data.length) {
             console.warn('ThiefMissionsViz init called without mission data; chart will render empty state.');
@@ -225,6 +233,7 @@ class ThiefMissionsViz {
         this.resizeHandler = () => {
             this.chart?.resize();
         };
+        this.configureFeatureVisibility();
     }
 
     public init(): ThiefVizHandle {
@@ -284,6 +293,17 @@ class ThiefMissionsViz {
         this.reconcileYearRanges();
     }
 
+    private configureFeatureVisibility() {
+        if (this.enableYearFilter) {
+            return;
+        }
+        this.dom.yearFilterBlock.style.display = 'none';
+        this.dom.checkboxLimitX.checked = false;
+        this.dom.checkboxLimitX.disabled = true;
+        this.dom.xLeft.disabled = true;
+        this.dom.xRight.disabled = true;
+    }
+
     private populateGameSelect() {
         this.dom.selectGame.innerHTML = '';
         GAME.getValues().forEach((value: GAME) => {
@@ -299,7 +319,6 @@ class ThiefMissionsViz {
         this.dom.selectGame.addEventListener('change', () => this.updateChart());
         this.dom.checkboxScaleByRatings.addEventListener('change', () => this.updateChart());
         this.dom.checkboxLimitY.addEventListener('change', () => this.updateChart());
-        this.dom.checkboxLimitX.addEventListener('change', () => this.updateChart());
         this.dom.checkboxMissionThumbnails.addEventListener('change', () => {
             this.chart.dispatchAction({ type: 'hideTip' });
         });
@@ -314,19 +333,25 @@ class ThiefMissionsViz {
             this.syncOutputs();
             this.updateChart();
         });
-        this.dom.xLeft.addEventListener('input', () => {
-            this.dom.checkboxLimitX.checked = true;
-            this.syncOutputs();
-            this.updateChart();
-        });
-        this.dom.xRight.addEventListener('input', () => {
-            this.dom.checkboxLimitX.checked = true;
-            this.syncOutputs();
-            this.updateChart();
-        });
+        if (this.enableYearFilter) {
+            this.dom.checkboxLimitX.addEventListener('change', () => this.updateChart());
+            this.dom.xLeft.addEventListener('input', () => {
+                this.dom.checkboxLimitX.checked = true;
+                this.syncOutputs();
+                this.updateChart();
+            });
+            this.dom.xRight.addEventListener('input', () => {
+                this.dom.checkboxLimitX.checked = true;
+                this.syncOutputs();
+                this.updateChart();
+            });
+        }
     }
 
     private reconcileYearRanges() {
+        if (!this.enableYearFilter) {
+            return;
+        }
         const [minYear, maxYear] = getYearBounds(this.missions);
         const min = `${minYear}`;
         const max = `${maxYear}`;
@@ -368,10 +393,10 @@ class ThiefMissionsViz {
             },
             xAxis: {
                 type: 'time',
-                min: this.dom.checkboxLimitX.checked
+                min: this.enableYearFilter && this.dom.checkboxLimitX.checked
                     ? new Date(`${this.dom.xLeft.value}-01-01`)
                     : undefined,
-                max: this.dom.checkboxLimitX.checked
+                max: this.enableYearFilter && this.dom.checkboxLimitX.checked
                     ? new Date(`${this.dom.xRight.value}-12-31`)
                     : undefined,
             },
@@ -385,9 +410,11 @@ class ThiefMissionsViz {
             return '';
         }
 
+        const formattedDate = formatReleaseDate(missionData[MissionDataField.releaseDateIdx]);
+
         const lines = [
             `<h1>${missionData[MissionDataField.nameIdx]}</h1>`,
-            `Released: <b>${missionData[MissionDataField.releaseDateIdx]}</b>`,
+            `Released: <b>${formattedDate}</b>`,
             `Rating: <b>${missionData[MissionDataField.ratingAverageIdx]}</b> out of <b>${missionData[MissionDataField.ratingCountIdx]}</b> user ratings`,
             `Authors: <b>${missionData[MissionDataField.authorsIdx]}</b>`,
         ];
@@ -478,6 +505,7 @@ function buildLayout(root: HTMLElement): ControlRefs {
     const xRight = queryRequired<HTMLInputElement>(root, '[data-role="x-right"]');
     const xLeftOutput = queryRequired<HTMLOutputElement>(root, '[data-role="x-left-output"]');
     const xRightOutput = queryRequired<HTMLOutputElement>(root, '[data-role="x-right-output"]');
+    const yearFilterBlock = queryRequired<HTMLDivElement>(root, '[data-role="year-filter-block"]');
     return {
         root,
         chart,
@@ -494,6 +522,7 @@ function buildLayout(root: HTMLElement): ControlRefs {
         xRight,
         xLeftOutput,
         xRightOutput,
+        yearFilterBlock,
     };
 }
 
@@ -524,6 +553,21 @@ function getYearBounds(missions: Mission[]): [number, number] {
         return [fallbackYear, fallbackYear];
     }
     return [Math.min(...years), Math.max(...years)];
+}
+
+const DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+});
+
+function formatReleaseDate(value: MissionData[0]): string {
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return 'Unknown';
+    }
+    const formatted = DATE_FORMATTER.format(date);
+    return formatted.replace(/^([A-Za-z]+)/, '$1.');
 }
 
 export function initThiefMissionsViz(options: InitOptions): ThiefVizHandle {
