@@ -92,20 +92,22 @@ const LAYOUT_TEMPLATE = `
         <label class="tmv-checkbox">
             <input type="checkbox" data-role="show-thumbnails" /> Show thumbnails on hover
         </label>
-        <label class="tmv-checkbox">
-            <input type="checkbox" data-role="limit-y" /> Limit Y
-        </label>
-        <div class="tmv-range-group">
-            <label>
-                Min rating
-                <input type="range" min="1" max="9.5" step="0.5" value="1" data-role="y-bottom" />
-                <output data-role="y-bottom-output">1</output>
+        <div data-role="rating-filter-block">
+            <label class="tmv-checkbox">
+                <input type="checkbox" data-role="limit-y" /> Limit rating axis
             </label>
-            <label>
-                Max rating
-                <input type="range" min="1.5" max="10" step="0.5" value="10" data-role="y-top" />
-                <output data-role="y-top-output">10</output>
-            </label>
+            <div class="tmv-range-group">
+                <label>
+                    Min rating
+                    <input type="range" min="1" max="9.5" step="0.5" value="1" data-role="y-bottom" />
+                    <output data-role="y-bottom-output">1</output>
+                </label>
+                <label>
+                    Max rating
+                    <input type="range" min="1.5" max="10" step="0.5" value="10" data-role="y-top" />
+                    <output data-role="y-top-output">10</output>
+                </label>
+            </div>
         </div>
         <div data-role="year-filter-block">
             <label class="tmv-checkbox">
@@ -194,6 +196,7 @@ interface ControlRefs {
     xLeftOutput: HTMLOutputElement;
     xRightOutput: HTMLOutputElement;
     yearFilterBlock: HTMLDivElement;
+    ratingFilterBlock: HTMLDivElement;
 }
 
 export type InitOptions = {
@@ -205,6 +208,8 @@ export type InitOptions = {
     };
     features?: {
         yearFilter?: boolean;
+        ratingFilter?: boolean;
+        groupedGameOptions?: boolean;
     };
 };
 
@@ -214,18 +219,30 @@ export type ThiefVizHandle = {
     getChart: () => echarts.ECharts;
 };
 
+type GameFilterOption = {
+    id: string;
+    label: string;
+    predicate: (mission: Mission) => boolean;
+};
+
 class ThiefMissionsViz {
     private readonly dom: ControlRefs;
     private readonly resizeHandler: () => void;
     private chart!: echarts.ECharts;
     private missions: Mission[];
     private readonly enableYearFilter: boolean;
+    private readonly enableRatingFilter: boolean;
+    private readonly groupedGameOptions: boolean;
+    private readonly gameFilterOptions: GameFilterOption[];
 
     constructor(private options: InitOptions) {
         const root = resolveRoot(options.root);
         injectStyles();
         this.enableYearFilter = options.features?.yearFilter !== false;
+        this.enableRatingFilter = options.features?.ratingFilter !== false;
+        this.groupedGameOptions = options.features?.groupedGameOptions === true;
         this.dom = buildLayout(root);
+        this.gameFilterOptions = this.buildGameFilterOptions();
         if (!options.data || !options.data.length) {
             console.warn('ThiefMissionsViz init called without mission data; chart will render empty state.');
         }
@@ -294,45 +311,53 @@ class ThiefMissionsViz {
     }
 
     private configureFeatureVisibility() {
-        if (this.enableYearFilter) {
-            return;
+        if (!this.enableYearFilter) {
+            this.dom.yearFilterBlock.style.display = 'none';
+            this.dom.checkboxLimitX.checked = false;
+            this.dom.checkboxLimitX.disabled = true;
+            this.dom.xLeft.disabled = true;
+            this.dom.xRight.disabled = true;
         }
-        this.dom.yearFilterBlock.style.display = 'none';
-        this.dom.checkboxLimitX.checked = false;
-        this.dom.checkboxLimitX.disabled = true;
-        this.dom.xLeft.disabled = true;
-        this.dom.xRight.disabled = true;
+        if (!this.enableRatingFilter) {
+            this.dom.ratingFilterBlock.style.display = 'none';
+            this.dom.checkboxLimitY.checked = false;
+            this.dom.checkboxLimitY.disabled = true;
+            this.dom.yBottom.disabled = true;
+            this.dom.yTop.disabled = true;
+        }
     }
 
     private populateGameSelect() {
         this.dom.selectGame.innerHTML = '';
-        GAME.getValues().forEach((value: GAME) => {
+        this.gameFilterOptions.forEach((option) => {
             const optionElement = document.createElement('option');
-            optionElement.value = value.name;
-            optionElement.textContent = value.name;
+            optionElement.value = option.id;
+            optionElement.textContent = option.label;
             this.dom.selectGame.appendChild(optionElement);
         });
-        this.dom.selectGame.value = GAME.ALL.name;
+        this.dom.selectGame.value = this.gameFilterOptions[0]?.id ?? '';
     }
 
     private setupEventListeners() {
         this.dom.selectGame.addEventListener('change', () => this.updateChart());
         this.dom.checkboxScaleByRatings.addEventListener('change', () => this.updateChart());
-        this.dom.checkboxLimitY.addEventListener('change', () => this.updateChart());
         this.dom.checkboxMissionThumbnails.addEventListener('change', () => {
             this.chart.dispatchAction({ type: 'hideTip' });
         });
 
-        this.dom.yBottom.addEventListener('input', () => {
-            this.dom.checkboxLimitY.checked = true;
-            this.syncOutputs();
-            this.updateChart();
-        });
-        this.dom.yTop.addEventListener('input', () => {
-            this.dom.checkboxLimitY.checked = true;
-            this.syncOutputs();
-            this.updateChart();
-        });
+        if (this.enableRatingFilter) {
+            this.dom.checkboxLimitY.addEventListener('change', () => this.updateChart());
+            this.dom.yBottom.addEventListener('input', () => {
+                this.dom.checkboxLimitY.checked = true;
+                this.syncOutputs();
+                this.updateChart();
+            });
+            this.dom.yTop.addEventListener('input', () => {
+                this.dom.checkboxLimitY.checked = true;
+                this.syncOutputs();
+                this.updateChart();
+            });
+        }
         if (this.enableYearFilter) {
             this.dom.checkboxLimitX.addEventListener('change', () => this.updateChart());
             this.dom.xLeft.addEventListener('input', () => {
@@ -365,10 +390,11 @@ class ThiefMissionsViz {
     }
 
     private updateChart() {
-        const gameFilter = GAME.parseEnum(this.dom.selectGame.value);
+        const selectedFilter = this.gameFilterOptions.find((option) => option.id === this.dom.selectGame.value)
+            ?? this.gameFilterOptions[0];
         let filtered = this.missions.slice();
-        if (gameFilter !== GAME.ALL) {
-            filtered = filtered.filter((mission) => mission.game === gameFilter);
+        if (selectedFilter) {
+            filtered = filtered.filter(selectedFilter.predicate);
         }
 
         const option: echarts.EChartsOption = {
@@ -384,10 +410,10 @@ class ThiefMissionsViz {
             ],
             yAxis: {
                 type: 'value',
-                min: this.dom.checkboxLimitY.checked
+                min: this.enableRatingFilter && this.dom.checkboxLimitY.checked
                     ? Number(this.dom.yBottom.value)
                     : 1,
-                max: this.dom.checkboxLimitY.checked
+                max: this.enableRatingFilter && this.dom.checkboxLimitY.checked
                     ? Number(this.dom.yTop.value)
                     : undefined,
             },
@@ -434,6 +460,45 @@ class ThiefMissionsViz {
         this.dom.yTopOutput.value = this.dom.yTop.value;
         this.dom.xLeftOutput.value = this.dom.xLeft.value;
         this.dom.xRightOutput.value = this.dom.xRight.value;
+    }
+
+    private buildGameFilterOptions(): GameFilterOption[] {
+        if (this.groupedGameOptions) {
+            return [
+                { id: 'all', label: 'All Games', predicate: () => true },
+                {
+                    id: 'tdp-tg',
+                    label: 'Thief: TDP/G',
+                    predicate: (mission) => mission.game === GAME.T1 || mission.game === GAME.TG,
+                },
+                {
+                    id: 't2',
+                    label: 'Thief II: TMA',
+                    predicate: (mission) => mission.game === GAME.T2,
+                },
+                {
+                    id: 'tdm',
+                    label: 'The Dark Mod',
+                    predicate: (mission) => mission.game === GAME.TDM,
+                },
+            ];
+        }
+
+        const entries: GameFilterOption[] = [
+            { id: 'all', label: GAME.ALL.name, predicate: () => true },
+        ];
+
+        GAME.getValues()
+            .filter((value) => value !== GAME.ALL)
+            .forEach((value) => {
+                entries.push({
+                    id: value.name,
+                    label: value.name,
+                    predicate: (mission) => mission.game === value,
+                });
+            });
+
+        return entries;
     }
 }
 
@@ -506,6 +571,7 @@ function buildLayout(root: HTMLElement): ControlRefs {
     const xLeftOutput = queryRequired<HTMLOutputElement>(root, '[data-role="x-left-output"]');
     const xRightOutput = queryRequired<HTMLOutputElement>(root, '[data-role="x-right-output"]');
     const yearFilterBlock = queryRequired<HTMLDivElement>(root, '[data-role="year-filter-block"]');
+    const ratingFilterBlock = queryRequired<HTMLDivElement>(root, '[data-role="rating-filter-block"]');
     return {
         root,
         chart,
@@ -523,6 +589,7 @@ function buildLayout(root: HTMLElement): ControlRefs {
         xLeftOutput,
         xRightOutput,
         yearFilterBlock,
+        ratingFilterBlock,
     };
 }
 
