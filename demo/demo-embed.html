@@ -4,34 +4,78 @@
     <meta charset="UTF-8" />
     <title>Thief Missions Viz – Integration Demo</title>
     <style>
+      :root {
+        color-scheme: dark;
+      }
       body {
         margin: 0;
-        background: #020617;
+        background: radial-gradient(circle at top, #0f172a, #010617 60%);
         color: #e2e8f0;
-        font-family: system-ui, sans-serif;
-        padding: 1rem;
+        font-family: 'Inter', system-ui, sans-serif;
+        padding: 2rem;
+        min-height: 100vh;
+      }
+      h1 {
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        margin-bottom: 1.5rem;
+      }
+      #fm-viz-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        border-radius: 1rem;
+        overflow: hidden;
+        box-shadow: 0 20px 45px rgba(2, 6, 23, 0.75);
+      }
+      .tmv-theme-custom {
+        backdrop-filter: blur(6px);
+        border: 1px solid rgba(148, 163, 184, 0.15);
       }
       .tmv-theme-custom .tmv-controls {
-        background: #0f172a;
+        background: linear-gradient(120deg, rgba(15, 23, 42, 0.9), rgba(30, 41, 59, 0.85));
         color: #e2e8f0;
         border-bottom: 0;
+        gap: 1.25rem;
+      }
+      .tmv-theme-custom label {
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        font-size: 0.75rem;
       }
       .tmv-theme-custom select,
       .tmv-theme-custom input,
       .tmv-theme-custom output {
         color: inherit;
-        background: transparent;
+        background: rgba(15, 23, 42, 0.6);
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        border-radius: 0.35rem;
+        padding: 0.2rem 0.4rem;
+      }
+      .tmv-theme-custom input[type="checkbox"] {
+        accent-color: #38bdf8;
+        width: 1rem;
+        height: 1rem;
+      }
+      .tmv-theme-custom input[type="range"] {
+        accent-color: #f472b6;
       }
       .tmv-theme-custom .tmv-chart {
-        border: 2px solid #0f172a;
-        background: #020617;
+        border-top: 1px solid rgba(148, 163, 184, 0.15);
+        background: #010617;
+      }
+      .tmv-theme-custom .tmv-range-group label {
+        background: rgba(15, 23, 42, 0.65);
+        padding: 0.4rem 0.6rem;
+        border-radius: 0.5rem;
       }
     </style>
   </head>
   <body>
     <h1>Demo: embedding the widget in an existing page</h1>
 
-    <div id="fm-viz" style="border: 1px solid #ddd; min-height: 420px"></div>
+    <div id="fm-viz-container">
+      <div id="fm-viz" style="min-height: 420px"></div>
+    </div>
 
     <!-- Compiled widget bundle (ships with ECharts + Lodash) -->
     <script src="./bundle.js"></script>
@@ -62,13 +106,41 @@
               })
               .map(window.ThiefMissionsViz.convertMissionFromJson);
 
-            window.ThiefMissionsViz.init({
+            var vizHandle = window.ThiefMissionsViz.init({
               root: targetSelector,
               data: missions,
               initial: { showThumbnails: false },
               features: { yearFilter: false, ratingFilter: false, groupedGameOptions: true },
               behavior: { radiusScale: 0.6, minSymbolSize: 6, maxSymbolSize: 60 },
               appearance: { className: 'tmv-theme-custom', chartTheme: 'dark' }
+            });
+
+            // Example: tailors the chart palette + font to match the host site
+            vizHandle.getChart().setOption({
+              backgroundColor: '#010617',
+              color: ['#38bdf8', '#f472b6', '#a855f7', '#facc15'],
+              textStyle: {
+                fontFamily: 'Inter, system-ui, sans-serif',
+                color: '#e2e8f0'
+              },
+              tooltip: {
+                borderColor: '#38bdf8',
+                backgroundColor: 'rgba(2,6,23,0.95)',
+                textStyle: { color: '#f8fafc' }
+              },
+              series: [
+                {
+                  itemStyle: {
+                    color: '#7bccaa',
+                    borderColor: '#7bccaa'
+                  },
+                  emphasis: {
+                    itemStyle: {
+                      color: '#7bccaa'
+                    }
+                  }
+                }
+              ]
             });
           })
           .catch(function (error) {
