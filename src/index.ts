@@ -30,6 +30,7 @@ export type MissionJson = {
 };
 
 type MissionData = [Date, number, number, string, string, string, string, number];
+type YearRange = { min?: number; max?: number };
 type TooltipDatum = echarts.TooltipComponentFormatterCallbackParams & { data?: unknown };
 
 enum DATA_TYPE {
@@ -216,6 +217,10 @@ export type InitOptions = {
         radiusScale?: number;
         minSymbolSize?: number;
         maxSymbolSize?: number;
+        releaseYearRange?: {
+            min?: number;
+            max?: number;
+        };
     };
     appearance?: {
         className?: string;
@@ -249,6 +254,7 @@ class ThiefMissionsViz {
     private readonly radiusScale: number;
     private readonly minSymbolSize: number;
     private readonly maxSymbolSize: number;
+    private readonly configYearRange?: YearRange;
 
     constructor(private options: InitOptions) {
         const root = resolveRoot(options.root);
@@ -270,6 +276,13 @@ class ThiefMissionsViz {
         const maxSize = options.behavior?.maxSymbolSize;
         this.minSymbolSize = typeof minSize === 'number' && minSize > 0 ? minSize : 4;
         this.maxSymbolSize = typeof maxSize === 'number' && maxSize > 0 ? maxSize : Infinity;
+        const yr = options.behavior?.releaseYearRange;
+        if (yr && (typeof yr.min === 'number' || typeof yr.max === 'number')) {
+            this.configYearRange = {
+                min: typeof yr.min === 'number' ? yr.min : undefined,
+                max: typeof yr.max === 'number' ? yr.max : undefined,
+            };
+        }
         if (!options.data || !options.data.length) {
             console.warn('ThiefMissionsViz init called without mission data; chart will render empty state.');
         }
@@ -336,6 +349,10 @@ class ThiefMissionsViz {
         }
         this.syncOutputs();
         this.reconcileYearRanges();
+        if (this.enableYearFilter && this.configYearRange) {
+            this.applyYearRangeToInputs(this.configYearRange);
+            this.dom.checkboxLimitX.checked = true;
+        }
     }
 
     private configureFeatureVisibility() {
@@ -424,6 +441,10 @@ class ThiefMissionsViz {
         if (selectedFilter) {
             filtered = filtered.filter(selectedFilter.predicate);
         }
+        const yearRange = this.getActiveYearRange();
+        if (yearRange) {
+            filtered = filtered.filter((mission) => this.isMissionWithinYearRange(mission, yearRange));
+        }
 
         const option: echarts.EChartsOption = {
             series: [
@@ -445,12 +466,8 @@ class ThiefMissionsViz {
             },
             xAxis: {
                 type: 'time',
-                min: this.enableYearFilter && this.dom.checkboxLimitX.checked
-                    ? new Date(`${this.dom.xLeft.value}-01-01`)
-                    : undefined,
-                max: this.enableYearFilter && this.dom.checkboxLimitX.checked
-                    ? new Date(`${this.dom.xRight.value}-12-31`)
-                    : undefined,
+                min: yearRange?.min !== undefined ? new Date(`${yearRange.min}-01-01`) : undefined,
+                max: yearRange?.max !== undefined ? new Date(`${yearRange.max}-12-31`) : undefined,
             },
         };
 
@@ -494,6 +511,49 @@ class ThiefMissionsViz {
             : 20;
         const scaled = base * this.radiusScale;
         return Math.min(this.maxSymbolSize, Math.max(this.minSymbolSize, scaled));
+    }
+
+    private applyYearRangeToInputs(range: YearRange) {
+        if (!this.enableYearFilter) {
+            return;
+        }
+        if (typeof range.min === 'number') {
+            this.dom.xLeft.value = `${range.min}`;
+        }
+        if (typeof range.max === 'number') {
+            this.dom.xRight.value = `${range.max}`;
+        }
+        this.syncOutputs();
+    }
+
+    private getUiYearRange(): YearRange | undefined {
+        if (!this.enableYearFilter || !this.dom.checkboxLimitX.checked) {
+            return undefined;
+        }
+        const min = Number(this.dom.xLeft.value);
+        const max = Number(this.dom.xRight.value);
+        return {
+            min: Number.isNaN(min) ? undefined : min,
+            max: Number.isNaN(max) ? undefined : max,
+        };
+    }
+
+    private getActiveYearRange(): YearRange | undefined {
+        return this.configYearRange ?? this.getUiYearRange();
+    }
+
+    private isMissionWithinYearRange(mission: Mission, range: YearRange): boolean {
+        const year = mission.releaseDate?.getFullYear?.();
+        if (typeof year !== 'number' || Number.isNaN(year)) {
+            return false;
+        }
+        if (typeof range.min === 'number' && year < range.min) {
+            return false;
+        }
+        if (typeof range.max === 'number' && year > range.max) {
+            return false;
+        }
+        return true;
     }
 
     private setupChartInteractions() {

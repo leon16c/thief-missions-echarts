@@ -110,7 +110,12 @@
               data: missions,
               initial: { showThumbnails: false },
               features: { yearFilter: false, ratingFilter: false, groupedGameOptions: true },
-              behavior: { radiusScale: 0.6, minSymbolSize: 6, maxSymbolSize: 60 },
+              behavior: {
+                radiusScale: 0.6,
+                minSymbolSize: 6,
+                maxSymbolSize: 60,
+                releaseYearRange: { min: 2021, max: 2023 }
+              },
               appearance: { className: 'tmv-theme-custom', chartTheme: 'dark' }
             });
 
