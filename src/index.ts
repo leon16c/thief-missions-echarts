@@ -212,6 +212,11 @@ export type InitOptions = {
         ratingFilter?: boolean;
         groupedGameOptions?: boolean;
     };
+    appearance?: {
+        className?: string;
+        injectDefaultStyles?: boolean;
+        chartTheme?: string;
+    };
 };
 
 export type ThiefVizHandle = {
@@ -235,10 +240,17 @@ class ThiefMissionsViz {
     private readonly enableRatingFilter: boolean;
     private readonly groupedGameOptions: boolean;
     private readonly gameFilterOptions: GameFilterOption[];
+    private readonly chartTheme?: string;
 
     constructor(private options: InitOptions) {
         const root = resolveRoot(options.root);
-        injectStyles();
+        if (options.appearance?.className) {
+            root.classList.add(options.appearance.className);
+        }
+        if (options.appearance?.injectDefaultStyles !== false) {
+            injectStyles();
+        }
+        this.chartTheme = options.appearance?.chartTheme;
         this.enableYearFilter = options.features?.yearFilter !== false;
         this.enableRatingFilter = options.features?.ratingFilter !== false;
         this.groupedGameOptions = options.features?.groupedGameOptions === true;
@@ -257,7 +269,7 @@ class ThiefMissionsViz {
     public init(): ThiefVizHandle {
         this.applyInitialValues();
         this.populateGameSelect();
-        this.chart = echarts.init(this.dom.chart);
+        this.chart = echarts.init(this.dom.chart, this.chartTheme);
         this.chart.setOption({
             tooltip: {
                 trigger: 'item',

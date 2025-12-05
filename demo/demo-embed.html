@@ -3,6 +3,30 @@
   <head>
     <meta charset="UTF-8" />
     <title>Thief Missions Viz – Integration Demo</title>
+    <style>
+      body {
+        margin: 0;
+        background: #020617;
+        color: #e2e8f0;
+        font-family: system-ui, sans-serif;
+        padding: 1rem;
+      }
+      .tmv-theme-custom .tmv-controls {
+        background: #0f172a;
+        color: #e2e8f0;
+        border-bottom: 0;
+      }
+      .tmv-theme-custom select,
+      .tmv-theme-custom input,
+      .tmv-theme-custom output {
+        color: inherit;
+        background: transparent;
+      }
+      .tmv-theme-custom .tmv-chart {
+        border: 2px solid #0f172a;
+        background: #020617;
+      }
+    </style>
   </head>
   <body>
     <h1>Demo: embedding the widget in an existing page</h1>
@@ -42,7 +66,8 @@
               root: targetSelector,
               data: missions,
               initial: { showThumbnails: false },
-              features: { yearFilter: false, ratingFilter: false, groupedGameOptions: true }
+              features: { yearFilter: false, ratingFilter: false, groupedGameOptions: true },
+              appearance: { className: 'tmv-theme-custom', chartTheme: 'dark' }
             });
           })
           .catch(function (error) {
