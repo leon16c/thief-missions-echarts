@@ -1,13 +1,9 @@
 import * as echarts from 'echarts';
 import * as _ from 'lodash';
 
-import jsonMissions from '../missions.json';
+type RatingDistribution = Record<string, number>;
 
-interface RatingDistribution {
-    [key: number]: number;
-}
-
-type Mission = {
+export type Mission = {
     name: string;
     authors: string[];
     releaseDate: Date;
@@ -17,12 +13,29 @@ type Mission = {
     ratingCount: number;
     thumbnailUrl: string;
     genres: string[];
-    ratingDistribution: Record<string, number>;
+    ratingDistribution: RatingDistribution;
 };
 
-type Filter = {
-    game: GAME,
-    dataType: DATA_TYPE
+export type MissionJson = {
+    name: string;
+    authors: string[];
+    release_date: string;
+    game: string;
+    id: number;
+    rating_average: number;
+    rating_count: number;
+    thumbnail_url: string;
+    genres: string[];
+    rating_distribution: RatingDistribution;
+};
+
+type MissionData = [Date, number, number, string, string, string, string];
+type TooltipDatum = echarts.TooltipComponentFormatterCallbackParams & { data?: unknown };
+
+enum DATA_TYPE {
+    Marker,
+    Line,
+    Both
 }
 
 class MissionDataField {
@@ -35,15 +48,7 @@ class MissionDataField {
     public static readonly genresIdx = 6;
 }
 
-type MissionData = [Date, number, number, string, string, string, string];
-
-enum DATA_TYPE {
-    Marker,
-    Line,
-    Both
-}
-
-class GAME {
+export class GAME {
     private static AllValues: { [name: string]: GAME } = {};
 
     public static readonly ALL = new GAME('All Games');
@@ -57,8 +62,11 @@ class GAME {
         GAME.AllValues[name] = this;
     }
 
-    public static parseEnum(name: string): GAME {
-        return GAME.AllValues[name];
+    public static parseEnum(name: string | undefined | null): GAME {
+        if (!name) {
+            return GAME.ALL;
+        }
+        return GAME.AllValues[name] ?? GAME.ALL;
     }
 
     public static getValues(): GAME[] {
@@ -68,45 +76,350 @@ class GAME {
     public toString(): string {
         return this.name;
     }
-
 }
 
-const selectGame = document.getElementById('selectGame') as HTMLSelectElement;
-const selectDataType = document.getElementById('selectDataType') as HTMLSelectElement;
-const checkboxesAuthors = document.getElementById('checkboxesAuthors') as HTMLDivElement;
-const yTop = document.getElementById('ytop') as HTMLInputElement;
-const yBottom = document.getElementById('ybottom') as HTMLInputElement;
-const checkboxLimitY = document.getElementById('checkboxLimitY') as HTMLInputElement;
+const STYLE_ELEMENT_ID = 'tmv-style';
 
+const LAYOUT_TEMPLATE = `
+    <div class="tmv-controls">
+        <label class="tmv-select">
+            Game
+            <select data-role="select-game"></select>
+        </label>
+        <label class="tmv-checkbox">
+            <input type="checkbox" data-role="scale-by-ratings" checked /> Scale by rating count
+        </label>
+        <label class="tmv-checkbox">
+            <input type="checkbox" data-role="show-thumbnails" /> Show thumbnails on hover
+        </label>
+        <label class="tmv-checkbox">
+            <input type="checkbox" data-role="limit-y" /> Limit Y
+        </label>
+        <div class="tmv-range-group">
+            <label>
+                Min rating
+                <input type="range" min="1" max="9.5" step="0.5" value="1" data-role="y-bottom" />
+                <output data-role="y-bottom-output">1</output>
+            </label>
+            <label>
+                Max rating
+                <input type="range" min="1.5" max="10" step="0.5" value="10" data-role="y-top" />
+                <output data-role="y-top-output">10</output>
+            </label>
+        </div>
+        <label class="tmv-checkbox">
+            <input type="checkbox" data-role="limit-x" /> Limit release year
+        </label>
+        <div class="tmv-range-group">
+            <label>
+                From
+                <input type="range" min="1999" max="2025" step="1" value="1999" data-role="x-left" />
+                <output data-role="x-left-output">1999</output>
+            </label>
+            <label>
+                To
+                <input type="range" min="1999" max="2025" step="1" value="2025" data-role="x-right" />
+                <output data-role="x-right-output">2025</output>
+            </label>
+        </div>
+    </div>
+    <div class="tmv-chart" data-role="chart"></div>
+`;
 
-const xLeft = document.getElementById('xleft') as HTMLInputElement;
-const xRight = document.getElementById('xright') as HTMLInputElement;
-const checkboxLimitX = document.getElementById('checkboxLimitX') as HTMLInputElement;
+const BASE_STYLES = `
+    .tmv-root {
+        font-family: system-ui, 'Segoe UI', sans-serif;
+        color: #111;
+        background: #fff;
+    }
+    .tmv-controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        align-items: center;
+        padding: 0.5rem;
+        border-bottom: 1px solid #eee;
+    }
+    .tmv-select select {
+        margin-left: 0.5rem;
+        padding: 0.15rem 0.35rem;
+    }
+    .tmv-checkbox {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        font-size: 0.9rem;
+    }
+    .tmv-range-group {
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+        font-size: 0.85rem;
+    }
+    .tmv-range-group label {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .tmv-range-group input[type="range"] {
+        width: 160px;
+    }
+    .tmv-chart {
+        width: 100%;
+        height: 75vh;
+    }
+    @media (min-width: 992px) {
+        .tmv-chart {
+            height: 85vh;
+        }
+    }
+`;
 
-const checkboxMissionThumbnails = document.getElementById('checkboxMissionThumbnails') as HTMLInputElement;
-const checkboxScaleByRatings = document.getElementById('checkboxScaleByRatings') as HTMLInputElement;
-
-function createmultiselectAuthors() {
-
-    const allAuthors = _.uniq(_.flatten(_.map(missions, 'authors')));
-    console.log(allAuthors);
-
-    _.forEach(allAuthors, function (author) {
-        const label = document.createElement('label') as HTMLLabelElement;
-        const input = document.createElement('input') as HTMLInputElement;
-        input.type = 'checkbox';
-        input.name = 'options'
-        label.textContent = author;
-        input.value = author;
-        label.appendChild(input);
-        checkboxesAuthors.append(label);
-        checkboxesAuthors.append(document.createElement('br'));
-    })
+interface ControlRefs {
+    root: HTMLElement;
+    chart: HTMLDivElement;
+    selectGame: HTMLSelectElement;
+    checkboxScaleByRatings: HTMLInputElement;
+    checkboxMissionThumbnails: HTMLInputElement;
+    checkboxLimitY: HTMLInputElement;
+    yBottom: HTMLInputElement;
+    yTop: HTMLInputElement;
+    yBottomOutput: HTMLOutputElement;
+    yTopOutput: HTMLOutputElement;
+    checkboxLimitX: HTMLInputElement;
+    xLeft: HTMLInputElement;
+    xRight: HTMLInputElement;
+    xLeftOutput: HTMLOutputElement;
+    xRightOutput: HTMLOutputElement;
 }
 
-function getSelectedOptions() {
-    const checkboxes: NodeListOf<HTMLInputElement> = document.querySelectorAll('#checkboxesAuthors input[type="checkbox"]:checked');
-    const selectedOptions: string[] = Array.from(checkboxes).map(cb => cb.value);
+export type InitOptions = {
+    root: string | HTMLElement;
+    data: Mission[];
+    initial?: {
+        showThumbnails?: boolean;
+        scaleByRatings?: boolean;
+    };
+};
+
+export type ThiefVizHandle = {
+    updateData: (missions: Mission[]) => void;
+    dispose: () => void;
+    getChart: () => echarts.ECharts;
+};
+
+class ThiefMissionsViz {
+    private readonly dom: ControlRefs;
+    private readonly resizeHandler: () => void;
+    private chart!: echarts.ECharts;
+    private missions: Mission[];
+
+    constructor(private options: InitOptions) {
+        const root = resolveRoot(options.root);
+        injectStyles();
+        this.dom = buildLayout(root);
+        if (!options.data || !options.data.length) {
+            console.warn('ThiefMissionsViz init called without mission data; chart will render empty state.');
+        }
+        this.missions = (options.data ?? []).slice();
+        this.resizeHandler = () => {
+            this.chart?.resize();
+        };
+    }
+
+    public init(): ThiefVizHandle {
+        this.applyInitialValues();
+        this.populateGameSelect();
+        this.chart = echarts.init(this.dom.chart);
+        this.chart.setOption({
+            tooltip: {
+                trigger: 'item',
+                formatter: (
+                    params:
+                        | echarts.TooltipComponentFormatterCallbackParams
+                        | echarts.TooltipComponentFormatterCallbackParams[],
+                ) => {
+                    const datum = Array.isArray(params)
+                        ? (params[0] as TooltipDatum)
+                        : (params as TooltipDatum);
+                    const payload = datum ?? ({} as TooltipDatum);
+                    return this.buildTooltip(payload?.data as MissionData);
+                },
+            },
+            xAxis: { type: 'time' },
+            yAxis: { type: 'value', min: 1 },
+            series: [],
+        });
+        this.setupEventListeners();
+        this.updateChart();
+        window.addEventListener('resize', this.resizeHandler);
+
+        return {
+            updateData: (missions) => {
+                this.missions = missions.slice();
+                this.reconcileYearRanges();
+                this.updateChart();
+            },
+            dispose: () => this.dispose(),
+            getChart: () => this.chart,
+        };
+    }
+
+    private dispose() {
+        window.removeEventListener('resize', this.resizeHandler);
+        if (this.chart) {
+            this.chart.dispose();
+        }
+    }
+
+    private applyInitialValues() {
+        const { initial } = this.options;
+        if (initial?.showThumbnails) {
+            this.dom.checkboxMissionThumbnails.checked = true;
+        }
+        if (initial?.scaleByRatings === false) {
+            this.dom.checkboxScaleByRatings.checked = false;
+        }
+        this.syncOutputs();
+        this.reconcileYearRanges();
+    }
+
+    private populateGameSelect() {
+        this.dom.selectGame.innerHTML = '';
+        GAME.getValues().forEach((value: GAME) => {
+            const optionElement = document.createElement('option');
+            optionElement.value = value.name;
+            optionElement.textContent = value.name;
+            this.dom.selectGame.appendChild(optionElement);
+        });
+        this.dom.selectGame.value = GAME.ALL.name;
+    }
+
+    private setupEventListeners() {
+        this.dom.selectGame.addEventListener('change', () => this.updateChart());
+        this.dom.checkboxScaleByRatings.addEventListener('change', () => this.updateChart());
+        this.dom.checkboxLimitY.addEventListener('change', () => this.updateChart());
+        this.dom.checkboxLimitX.addEventListener('change', () => this.updateChart());
+        this.dom.checkboxMissionThumbnails.addEventListener('change', () => {
+            this.chart.dispatchAction({ type: 'hideTip' });
+        });
+
+        this.dom.yBottom.addEventListener('input', () => {
+            this.dom.checkboxLimitY.checked = true;
+            this.syncOutputs();
+            this.updateChart();
+        });
+        this.dom.yTop.addEventListener('input', () => {
+            this.dom.checkboxLimitY.checked = true;
+            this.syncOutputs();
+            this.updateChart();
+        });
+        this.dom.xLeft.addEventListener('input', () => {
+            this.dom.checkboxLimitX.checked = true;
+            this.syncOutputs();
+            this.updateChart();
+        });
+        this.dom.xRight.addEventListener('input', () => {
+            this.dom.checkboxLimitX.checked = true;
+            this.syncOutputs();
+            this.updateChart();
+        });
+    }
+
+    private reconcileYearRanges() {
+        const [minYear, maxYear] = getYearBounds(this.missions);
+        const min = `${minYear}`;
+        const max = `${maxYear}`;
+        [this.dom.xLeft, this.dom.xRight].forEach((input) => {
+            input.min = min;
+            input.max = max;
+        });
+        this.dom.xLeft.value = min;
+        this.dom.xRight.value = max;
+        this.syncOutputs();
+    }
+
+    private updateChart() {
+        const gameFilter = GAME.parseEnum(this.dom.selectGame.value);
+        let filtered = this.missions.slice();
+        if (gameFilter !== GAME.ALL) {
+            filtered = filtered.filter((mission) => mission.game === gameFilter);
+        }
+
+        const option: echarts.EChartsOption = {
+            series: [
+                {
+                    type: 'scatter',
+                    data: missionsToData(filtered),
+                    symbolSize: (params: MissionData) =>
+                        this.dom.checkboxScaleByRatings.checked
+                            ? params[MissionDataField.ratingCountIdx]
+                            : 20,
+                },
+            ],
+            yAxis: {
+                type: 'value',
+                min: this.dom.checkboxLimitY.checked
+                    ? Number(this.dom.yBottom.value)
+                    : 1,
+                max: this.dom.checkboxLimitY.checked
+                    ? Number(this.dom.yTop.value)
+                    : undefined,
+            },
+            xAxis: {
+                type: 'time',
+                min: this.dom.checkboxLimitX.checked
+                    ? new Date(`${this.dom.xLeft.value}-01-01`)
+                    : undefined,
+                max: this.dom.checkboxLimitX.checked
+                    ? new Date(`${this.dom.xRight.value}-12-31`)
+                    : undefined,
+            },
+        };
+
+        this.chart.setOption(option);
+    }
+
+    private buildTooltip(missionData: MissionData) {
+        if (!missionData) {
+            return '';
+        }
+
+        const lines = [
+            `<h1>${missionData[MissionDataField.nameIdx]}</h1>`,
+            `Released: <b>${missionData[MissionDataField.releaseDateIdx]}</b>`,
+            `Rating: <b>${missionData[MissionDataField.ratingAverageIdx]}</b> out of <b>${missionData[MissionDataField.ratingCountIdx]}</b> user ratings`,
+            `Authors: <b>${missionData[MissionDataField.authorsIdx]}</b>`,
+        ];
+
+        if (this.dom.checkboxMissionThumbnails.checked) {
+            const src = missionData[MissionDataField.thumbnailIdx];
+            if (src) {
+                lines.push(`<img src="${src}" width="480" height="270" />`);
+            }
+        }
+
+        return lines.join('<br/>');
+    }
+
+    private syncOutputs() {
+        this.dom.yBottomOutput.value = this.dom.yBottom.value;
+        this.dom.yTopOutput.value = this.dom.yTop.value;
+        this.dom.xLeftOutput.value = this.dom.xLeft.value;
+        this.dom.xRightOutput.value = this.dom.xRight.value;
+    }
+}
+
+function missionsToData(missions: Mission[]): MissionData[] {
+    return missions.map((mission) => [
+        mission.releaseDate,
+        mission.ratingAverage,
+        mission.ratingCount,
+        mission.name,
+        joinWithLineBreak(mission.authors, 4),
+        mission.thumbnailUrl,
+        joinWithLineBreak(mission.genres, 3),
+    ]);
 }
 
 function joinWithLineBreak(array: string[], elementsPerLine: number = 3): string {
@@ -118,67 +431,15 @@ function joinWithLineBreak(array: string[], elementsPerLine: number = 3): string
             acc[acc.length - 1].push(current);
             return acc;
         }, [])
-        .map(group => group.join(', '))
+        .map((group) => group.join(', '))
         .join(',<br>');
 }
 
-function createButtonSelectGame() {
-
-    GAME.getValues().forEach((value: GAME) => {
-        const optionElement = document.createElement('option');
-        optionElement.value = value.name;
-        optionElement.textContent = value.name;
-        selectGame?.appendChild(optionElement);
-    })
-
-    selectGame?.addEventListener('change', (e) => {
-        updateChart();
-    });
-}
-
-function updateChart() {
-    var filteredMissions: Mission[] = [...missions];
-
-    const newFilter: Filter = {
-        game: GAME.parseEnum(selectGame.value),
-        dataType: DATA_TYPE.Marker
-    }
-
-    if (newFilter.game != GAME.ALL) {
-        filteredMissions = _.filter(filteredMissions, mission => mission.game == newFilter.game);
-    }
-
-    const option: echarts.EChartsOption = {
-        series: [
-            {
-                type: 'scatter',
-                data: missionsToData(filteredMissions),
-                symbolSize: function (params: MissionData) {
-                    return checkboxScaleByRatings.checked ? params[MissionDataField.ratingCountIdx] : 20;
-                }
-            }
-        ],
-    };
-
-    option.yAxis = {
-        type: 'value',
-        min: checkboxLimitY.checked ? yBottom.value : 1,
-        max: checkboxLimitY.checked ? yTop.value : undefined
-    }
-
-    option.xAxis = {
-        min: checkboxLimitX.checked ? new Date(`${xLeft.value}-01-01`) : undefined,
-        max: checkboxLimitX.checked ? new Date(`${xRight.value}-12-31`) : undefined
-    }
-    
-    myChart.setOption(option)
-}
-
-function convertToJsonMission(jsonData: any): Mission {
-    const mission: Mission = {
+function convertToMission(jsonData: MissionJson): Mission {
+    return {
         name: jsonData.name,
         authors: jsonData.authors,
-        releaseDate: jsonData.release_date,
+        releaseDate: new Date(jsonData.release_date),
         game: GAME.parseEnum(jsonData.game),
         id: jsonData.id,
         ratingAverage: jsonData.rating_average,
@@ -187,96 +448,106 @@ function convertToJsonMission(jsonData: any): Mission {
         genres: jsonData.genres,
         ratingDistribution: jsonData.rating_distribution,
     };
-    return mission;
 }
 
-const missions: Mission[] = _.filter(jsonMissions.map(convertToJsonMission), mission => mission.ratingAverage != -1);
-
-function setupEventListeners() {
-    checkboxScaleByRatings.addEventListener('change', (e) => {
-        updateChart();
-    })
-    yBottom.addEventListener('input', (e) => {
-        checkboxLimitY.checked = true;
-        updateChart();
-    })
-    yTop.addEventListener('input', (e) => {
-        checkboxLimitY.checked = true;
-        updateChart();
-    })
-    checkboxLimitY.addEventListener('change', (e) => {
-        updateChart();
-    })
-    xLeft.addEventListener('input', (e) => {
-        checkboxLimitX.checked = true;
-        updateChart();
-    })
-    xRight.addEventListener('input', (e) => {
-        checkboxLimitX.checked = true;
-        updateChart();
-    })
-    checkboxLimitX.addEventListener('change', (e) => {
-        updateChart();
-    })
-}
-function missionsToData(missions: Mission[]): MissionData[] {
-    return _.map(missions, mission => [mission.releaseDate, mission.ratingAverage, mission.ratingCount, mission.name, joinWithLineBreak(mission.authors, 4), mission.thumbnailUrl, joinWithLineBreak(mission.genres, 3)]);
-}
-
-const myChart: echarts.ECharts = echarts.init(document.getElementById('chart'));
-
-const initialMissionData: MissionData[] = missionsToData(missions);
-
-var tooltipDisplay: string = ''
-
-myChart.on('mouseover', function (params: echarts.ECElementEvent) {
-    if (params.componentSubType == "scatter") {
-        const hoveredMissionData = params?.data as MissionData;
-        tooltipDisplay = `
-        <h1>${hoveredMissionData[MissionDataField.nameIdx]}</h1></br>
-        Released: <b>${hoveredMissionData[MissionDataField.releaseDateIdx]}</b></br>
-        Rating: <b>${hoveredMissionData[MissionDataField.ratingAverageIdx]}</b> out of <b>${hoveredMissionData[MissionDataField.ratingCountIdx]}</b> user ratings</br>
-        Author(s): <b>${hoveredMissionData[MissionDataField.authorsIdx]}</b></br>
-        `;
-        if (false) {
-            tooltipDisplay += `Genres: ${hoveredMissionData[MissionDataField.genresIdx]}</br>`;
+function resolveRoot(root: string | HTMLElement): HTMLElement {
+    if (typeof root === 'string') {
+        const element = document.querySelector<HTMLElement>(root);
+        if (!element) {
+            throw new Error(`Could not find element for selector "${root}"`);
         }
-        if (checkboxMissionThumbnails.checked) {
-            tooltipDisplay += `<img src="${hoveredMissionData[MissionDataField.thumbnailIdx]}" width="640" height="360">`
-        }
+        return element;
     }
-});
+    return root;
+}
 
-myChart.on('mouseout', function (params: echarts.ECElementEvent) {
-    tooltipDisplay = ''
-});
+function buildLayout(root: HTMLElement): ControlRefs {
+    root.classList.add('tmv-root');
+    root.innerHTML = LAYOUT_TEMPLATE;
+    const select = queryRequired<HTMLSelectElement>(root, '[data-role="select-game"]');
+    const chart = queryRequired<HTMLDivElement>(root, '[data-role="chart"]');
+    const checkboxScale = queryRequired<HTMLInputElement>(root, '[data-role="scale-by-ratings"]');
+    const checkboxThumbs = queryRequired<HTMLInputElement>(root, '[data-role="show-thumbnails"]');
+    const checkboxLimitY = queryRequired<HTMLInputElement>(root, '[data-role="limit-y"]');
+    const yBottom = queryRequired<HTMLInputElement>(root, '[data-role="y-bottom"]');
+    const yTop = queryRequired<HTMLInputElement>(root, '[data-role="y-top"]');
+    const yBottomOutput = queryRequired<HTMLOutputElement>(root, '[data-role="y-bottom-output"]');
+    const yTopOutput = queryRequired<HTMLOutputElement>(root, '[data-role="y-top-output"]');
+    const checkboxLimitX = queryRequired<HTMLInputElement>(root, '[data-role="limit-x"]');
+    const xLeft = queryRequired<HTMLInputElement>(root, '[data-role="x-left"]');
+    const xRight = queryRequired<HTMLInputElement>(root, '[data-role="x-right"]');
+    const xLeftOutput = queryRequired<HTMLOutputElement>(root, '[data-role="x-left-output"]');
+    const xRightOutput = queryRequired<HTMLOutputElement>(root, '[data-role="x-right-output"]');
+    return {
+        root,
+        chart,
+        selectGame: select,
+        checkboxScaleByRatings: checkboxScale,
+        checkboxMissionThumbnails: checkboxThumbs,
+        checkboxLimitY,
+        yBottom,
+        yTop,
+        yBottomOutput,
+        yTopOutput,
+        checkboxLimitX,
+        xLeft,
+        xRight,
+        xLeftOutput,
+        xRightOutput,
+    };
+}
 
-const option: echarts.EChartsOption = {
-    xAxis: { type: 'time' },
-    yAxis: { type: 'value', min: 1 },
-    series: [
-        {
-            type: 'scatter',
-            data: initialMissionData,
-            symbolSize: function (params: MissionData) {
-                return params[MissionDataField.ratingCountIdx];
-            }
-        },
-    ],
-    tooltip: {
-        trigger: 'item',
-        formatter: (params) => {
-            return tooltipDisplay;
-        }
+function queryRequired<T extends HTMLElement>(root: ParentNode, selector: string): T {
+    const element = root.querySelector<T>(selector);
+    if (!element) {
+        throw new Error(`Missing required element: ${selector}`);
     }
-};
+    return element;
+}
 
-option && myChart.setOption(option);
+function injectStyles() {
+    if (document.getElementById(STYLE_ELEMENT_ID)) {
+        return;
+    }
+    const style = document.createElement('style');
+    style.id = STYLE_ELEMENT_ID;
+    style.textContent = BASE_STYLES;
+    document.head.appendChild(style);
+}
 
-window.addEventListener('resize', () => {
-    myChart.resize();
-});
+function getYearBounds(missions: Mission[]): [number, number] {
+    const fallbackYear = new Date().getFullYear();
+    const years = missions
+        .map((mission) => mission.releaseDate?.getFullYear?.() ?? fallbackYear)
+        .filter((year) => !Number.isNaN(year));
+    if (!years.length) {
+        return [fallbackYear, fallbackYear];
+    }
+    return [Math.min(...years), Math.max(...years)];
+}
 
-createButtonSelectGame();
-//createmultiselectAuthors();
-setupEventListeners();
+export function initThiefMissionsViz(options: InitOptions): ThiefVizHandle {
+    if (!options?.data) {
+        throw new Error('initThiefMissionsViz requires a `data` array.');
+    }
+    const viz = new ThiefMissionsViz(options);
+    return viz.init();
+}
+
+declare global {
+    interface Window {
+        ThiefMissionsViz?: {
+            init: typeof initThiefMissionsViz;
+            convertMissionFromJson: typeof convertToMission;
+        };
+    }
+}
+
+if (typeof window !== 'undefined') {
+    window.ThiefMissionsViz = {
+        init: initThiefMissionsViz,
+        convertMissionFromJson: convertToMission,
+    };
+}
+
+export { convertToMission };

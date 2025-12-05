@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Thief Missions Viz – Integration Demo</title>
+  </head>
+  <body>
+    <h1>Demo: embedding the widget in an existing page</h1>
+
+    <div id="fm-viz" style="border: 1px solid #ddd; min-height: 420px"></div>
+
+    <!-- Compiled widget bundle (ships with ECharts + Lodash) -->
+    <script src="./dist/bundle.js"></script>
+
+    <!--
+      If you rebuild with webpack externals enabled, comment the line above and
+      instead include your own copies of the deps before the bundle, e.g.:
+
+      <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+      <script src="https://cdn.jsdelivr.net/npm/lodash@4/lodash.min.js"></script>
+      <script src="./dist/bundle.js"></script>
+    -->
+
+    <script>
+      // Replace this with a real endpoint or static file in production
+      var MOCK_DATA_URL = './missions.json';
+
+      function bootstrapViz(targetSelector, dataUrl) {
+        fetch(dataUrl)
+          .then(function (response) {
+            if (!response.ok) throw new Error('HTTP ' + response.status);
+            return response.json();
+          })
+          .then(function (payload) {
+            var missions = payload
+              .filter(function (mission) {
+                return mission.rating_average !== -1;
+              })
+              .map(window.ThiefMissionsViz.convertMissionFromJson);
+
+            window.ThiefMissionsViz.init({
+              root: targetSelector,
+              data: missions,
+              initial: { showThumbnails: false }
+            });
+          })
+          .catch(function (error) {
+            console.error('ThiefMissionsViz demo failed', error);
+          });
+      }
+
+      document.addEventListener('DOMContentLoaded', function () {
+        bootstrapViz('#fm-viz', MOCK_DATA_URL);
+      });
+    </script>
+  </body>
+</html>
