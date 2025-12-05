@@ -214,6 +214,8 @@ export type InitOptions = {
     };
     behavior?: {
         radiusScale?: number;
+        minSymbolSize?: number;
+        maxSymbolSize?: number;
     };
     appearance?: {
         className?: string;
@@ -245,6 +247,8 @@ class ThiefMissionsViz {
     private readonly gameFilterOptions: GameFilterOption[];
     private readonly chartTheme?: string;
     private readonly radiusScale: number;
+    private readonly minSymbolSize: number;
+    private readonly maxSymbolSize: number;
 
     constructor(private options: InitOptions) {
         const root = resolveRoot(options.root);
@@ -262,6 +266,10 @@ class ThiefMissionsViz {
         this.gameFilterOptions = this.buildGameFilterOptions();
         const scale = options.behavior?.radiusScale;
         this.radiusScale = typeof scale === 'number' && scale > 0 ? scale : 1;
+        const minSize = options.behavior?.minSymbolSize;
+        const maxSize = options.behavior?.maxSymbolSize;
+        this.minSymbolSize = typeof minSize === 'number' && minSize > 0 ? minSize : 4;
+        this.maxSymbolSize = typeof maxSize === 'number' && maxSize > 0 ? maxSize : Infinity;
         if (!options.data || !options.data.length) {
             console.warn('ThiefMissionsViz init called without mission data; chart will render empty state.');
         }
@@ -484,7 +492,8 @@ class ThiefMissionsViz {
         const base = this.dom.checkboxScaleByRatings.checked
             ? params[MissionDataField.ratingCountIdx]
             : 20;
-        return Math.max(4, base * this.radiusScale);
+        const scaled = base * this.radiusScale;
+        return Math.min(this.maxSymbolSize, Math.max(this.minSymbolSize, scaled));
     }
 
     private setupChartInteractions() {
